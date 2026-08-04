@@ -42,7 +42,7 @@ final class GameViewModel: ObservableObject {
     init(
         seed: UInt64 = UInt64.random(in: UInt64.min...UInt64.max),
         preferences: Preferences = Preferences(),
-        advertising: AdvertisingServing = AdMobAdvertisingService()
+        advertising: AdvertisingServing = UnityAdsAdvertisingService()
     ) {
         self.preferences = preferences
         self.advertising = advertising

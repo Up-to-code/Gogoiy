@@ -11,12 +11,16 @@ iOS 17 or newer.
 3. Build and run.
 
 The game stores the best score and audio/haptic preferences in `UserDefaults`.
-Google Mobile Ads 13.6.0 is integrated through Swift Package Manager, with UMP
-consent requested before ads are loaded.
+Unity Ads 4.19.0 is integrated through Swift Package Manager. The app sends
+restrictive privacy signals and does not request cross-app tracking permission.
 
-Debug builds use Google's official test application and ad-unit IDs. Release
-builds use the Gogoiy production AdMob application ID, Home Banner unit, and
-Power-Up Reward unit. Do not replace the debug IDs with live IDs while testing.
+The Unity dashboard app is configured with Game ID `800109658`, banner placement
+`Banner_iOS`, and rewarded placement `Rewarded_iOS`. These values are set in the
+Gogoiy target's build settings as `UNITY_ADS_GAME_ID`,
+`UNITY_ADS_BANNER_PLACEMENT_ID`, and `UNITY_ADS_REWARDED_PLACEMENT_ID`.
+
+Unity Ads test mode is always enabled in Debug builds and disabled in Release.
+Never exercise live production inventory during development.
 
 Ads are limited to a compact banner on the home screen and a rewarded Hint that
 the player explicitly requests. Gameplay is never interrupted by an automatic
@@ -30,5 +34,5 @@ Run the `GogoiyTests` target with Product → Test, or:
 xcodebuild test \
   -project Gogoiy.xcodeproj \
   -scheme Gogoiy \
-  -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
+  -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'
 ```

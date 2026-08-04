@@ -5,10 +5,10 @@ private let privacyPolicyText = """
 Gogoiy stores your best score and sound, music, and haptic preferences on your device. \
 The game does not require an account and does not send gameplay data to a Gogoiy server.
 
-Gogoiy uses Google Mobile Ads to show a small banner and optional rewarded ads. Google \
-and its advertising partners may process device, network, consent, and advertising data \
-according to your region and privacy choices. You can revisit available advertising \
-privacy choices from More Settings.
+Gogoiy uses Unity Ads to show a small banner and optional rewarded \
+ads. The integration uses restrictive, non-tracking privacy settings. Unity and its \
+advertising partners may still process device, network, and ad-delivery data as described \
+in the privacy information on the final App Store listing.
 
 Deleting Gogoiy removes its locally stored game preferences. This prototype does not \
 sell personal information or include analytics, accounts, or a custom tracking backend.
@@ -84,6 +84,7 @@ struct GameRootView: View {
                         title: "Privacy Policy",
                         systemImage: "hand.raised.fill",
                         text: privacyPolicyText,
+                        url: URL(string: "https://gogoiy.qentrah.com/privacy"),
                         close: { model.showMoreSettings() }
                     )
                 }
@@ -97,6 +98,7 @@ struct GameRootView: View {
                         title: "Terms of Use",
                         systemImage: "doc.text.fill",
                         text: termsOfUseText,
+                        url: URL(string: "https://gogoiy.qentrah.com/terms"),
                         close: { model.showMoreSettings() }
                     )
                 }
@@ -232,6 +234,10 @@ struct GameRootView: View {
                 .foregroundStyle(.white)
                 .contentTransition(.numericText())
                 .shadow(color: .black.opacity(0.25), radius: 4, y: 3)
+            Text("LEVEL \(model.state.level)")
+                .font(.system(size: compact ? 8 : 9, weight: .black, design: .rounded))
+                .tracking(1.2)
+                .foregroundStyle(.white.opacity(0.58))
             if model.state.combo > 1 {
                 Text("SWEET ×\(model.state.combo)")
                     .font(.system(size: 11, weight: .heavy, design: .rounded))
@@ -294,6 +300,7 @@ private struct SplashScreen: View {
         VStack(spacing: 24) {
             Spacer()
             GogoiyMark(blockSize: 22)
+                .frame(maxWidth: .infinity, alignment: .center)
                 .scaleEffect(isVisible ? 1 : 0.55)
                 .rotationEffect(.degrees(isVisible ? 0 : -12))
                 .opacity(isVisible ? 1 : 0)
@@ -477,7 +484,7 @@ private struct AdBannerSlot: View {
         GeometryReader { geometry in
             let width = min(420, max(320, geometry.size.width))
 
-            AdMobBannerView(width: width)
+            UnityAdsBannerView(width: width)
                 .frame(width: width, height: 50)
                 .frame(maxWidth: .infinity)
                 .accessibilityElement(children: .ignore)
@@ -556,7 +563,11 @@ private struct GogoiyMark: View {
                     )
             }
         }
-        .frame(width: blockSize * 3.7, height: blockSize * 4.6)
+        .frame(
+            width: blockSize * 3.7,
+            height: blockSize * 4.6,
+            alignment: .topLeading
+        )
         .accessibilityHidden(true)
     }
 }
@@ -725,6 +736,7 @@ private struct LegalPanel: View {
     let title: String
     let systemImage: String
     let text: String
+    let url: URL?
     let close: () -> Void
 
     var body: some View {
@@ -741,6 +753,12 @@ private struct LegalPanel: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxHeight: 360)
+
+            if let url {
+                Link("Open full \(title)", destination: url)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(.cyan)
+            }
 
             Button("Done", action: close)
                 .buttonStyle(CandyButtonStyle(color: Color(red: 0.25, green: 0.67, blue: 0.94)))

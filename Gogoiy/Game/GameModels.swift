@@ -193,6 +193,11 @@ struct GameState: Equatable, Sendable {
     var bestScore: Int
     var combo: Int
     var isGameOver: Bool
+
+    /// Difficulty advances gradually and caps at level 100.
+    var level: Int {
+        min(100, max(1, score / 100 + 1))
+    }
 }
 
 enum GameRuleError: Error, Equatable {

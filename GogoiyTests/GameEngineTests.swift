@@ -166,6 +166,50 @@ final class GameEngineTests: XCTestCase {
         XCTAssertTrue(first.state.tray.availablePieces.contains {
             first.state.board.hasPlacement(for: $0)
         })
+        XCTAssertTrue(
+            hasCompleteSequence(
+                board: first.state.board,
+                pieces: first.state.tray.availablePieces
+            )
+        )
+    }
+
+    func testGeneratedTrayOffersACompleteBoardAwareRoute() throws {
+        var board = Board()
+        for column in 0..<7 {
+            board[GridCell(row: 0, column: column)] = .cyan
+        }
+        let finalOldPiece = piece("single", color: .amber)
+        var engine = GameEngine(
+            state: makeState(
+                board: board,
+                tray: Tray(slots: [finalOldPiece, nil, nil])
+            ),
+            seed: 45
+        )
+
+        _ = try engine.place(pieceID: finalOldPiece.id, at: GridCell(row: 7, column: 7))
+
+        XCTAssertTrue(
+            hasCompleteSequence(
+                board: engine.state.board,
+                pieces: engine.state.tray.availablePieces
+            )
+        )
+        XCTAssertTrue(engine.state.tray.availablePieces.contains { candidate in
+            guard candidate.color == .cyan else { return false }
+            return placements(of: candidate, on: engine.state.board).contains { origin in
+                var preview = engine.state.board
+                _ = preview.place(candidate, at: origin)
+                return !preview.completedLines().cells.isEmpty
+            }
+        })
+    }
+
+    func testDifficultyLevelScalesAndCapsAtOneHundred() {
+        XCTAssertEqual(makeState(board: Board(), tray: Tray(slots: []), score: 0).level, 1)
+        XCTAssertEqual(makeState(board: Board(), tray: Tray(slots: []), score: 9_900).level, 100)
+        XCTAssertEqual(makeState(board: Board(), tray: Tray(slots: []), score: 50_000).level, 100)
     }
 
     func testRewardedBlockReplacesFirstRemainingTrayPieceWithoutMutatingBoard() throws {
@@ -273,5 +317,28 @@ final class GameEngineTests: XCTestCase {
             combo: 0,
             isGameOver: false
         )
+    }
+
+    private func hasCompleteSequence(board: Board, pieces: [Piece]) -> Bool {
+        guard let piece = pieces.first else { return true }
+        let remaining = Array(pieces.dropFirst())
+        for origin in placements(of: piece, on: board) {
+            var nextBoard = board
+            _ = nextBoard.place(piece, at: origin)
+            nextBoard.clear(nextBoard.completedLines().cells)
+            if hasCompleteSequence(board: nextBoard, pieces: remaining) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func placements(of piece: Piece, on board: Board) -> [GridCell] {
+        (0..<Board.sideLength).flatMap { row in
+            (0..<Board.sideLength).compactMap { column in
+                let origin = GridCell(row: row, column: column)
+                return board.canPlace(piece, at: origin) ? origin : nil
+            }
+        }
     }
 }

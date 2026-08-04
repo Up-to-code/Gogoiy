@@ -1,7 +1,6 @@
-import GoogleMobileAds
 import SwiftUI
 import UIKit
-import UserMessagingPlatform
+import UnityAds
 
 enum RewardedPowerUp: String, Sendable {
     case undo
@@ -10,23 +9,22 @@ enum RewardedPowerUp: String, Sendable {
     case getBlock
 }
 
-enum AdMobConfiguration {
-    static var bannerAdUnitID: String {
-#if DEBUG
-        // Google's official iOS banner test unit. Never exercise a live unit during development.
-        "ca-app-pub-3940256099942544/2435281174"
-#else
-        "ca-app-pub-6292495011747622/8411559201"
-#endif
+enum UnityAdsConfiguration {
+    static let gameID = value(for: "UnityAdsGameID")
+    static let bannerPlacementID = value(for: "UnityAdsBannerPlacementID")
+    static let rewardedPlacementID = value(for: "UnityAdsRewardedPlacementID")
+
+    static var isConfigured: Bool {
+        !gameID.isEmpty && !bannerPlacementID.isEmpty && !rewardedPlacementID.isEmpty
     }
 
-    static var rewardedAdUnitID: String {
-#if DEBUG
-        // Google's official iOS rewarded test unit.
-        "ca-app-pub-3940256099942544/1712485313"
-#else
-        "ca-app-pub-6292495011747622/2772219715"
-#endif
+    private static func value(for key: String) -> String {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String else {
+            return ""
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.hasPrefix("$(") else { return "" }
+        return trimmed
     }
 }
 
@@ -45,37 +43,79 @@ protocol AdvertisingServing: AnyObject {
 }
 
 @MainActor
-final class AdMobAdvertisingService: NSObject, AdvertisingServing {
-    private var rewardedAd: RewardedAd?
-    private var isPreparing = false
+final class UnityAdsRuntime {
+    static let shared = UnityAdsRuntime()
+
+    private(set) var isInitialized = false
+    private var isInitializing = false
+    private var callbacks: [(Bool) -> Void] = []
+
+    private init() {}
+
+    func prepare(completion: @escaping (Bool) -> Void) {
+        guard UnityAdsConfiguration.isConfigured else {
+            completion(false)
+            return
+        }
+        guard !isInitialized else {
+            completion(true)
+            return
+        }
+
+        callbacks.append(completion)
+        guard !isInitializing else { return }
+        isInitializing = true
+
+        // Keep ads non-personalized and opt out of sale/sharing. Gogoiy does not
+        // request App Tracking Transparency permission.
+        UnityAds.setUserConsent(false)
+        UnityAds.setUserOptOut(true)
+        UnityAds.setNonBehavioral(true)
+
+        let builder = UADSInitializationConfigurationBuilder(gameId: UnityAdsConfiguration.gameID)
+#if DEBUG
+        _ = builder.with(testMode: true).with(logLevel: .debug)
+#else
+        _ = builder.with(testMode: false).with(logLevel: .error)
+#endif
+
+        UnityAds.initialize(builder.build()) { [weak self] error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isInitialized = error == nil
+                self.isInitializing = false
+                let pending = self.callbacks
+                self.callbacks.removeAll()
+                pending.forEach { $0(self.isInitialized) }
+            }
+        }
+    }
+}
+
+@MainActor
+final class UnityAdsAdvertisingService: NSObject, AdvertisingServing {
+    private var rewardedAd: UADSRewardedAd?
+    private var isLoadingRewarded = false
     private var preparationCallbacks: [() -> Void] = []
     private var pendingRewardCompletion: ((Bool) -> Void)?
     private var rewardWasEarned = false
 
     var canRequestAds: Bool {
-        ConsentInformation.shared.canRequestAds
+        UnityAdsRuntime.shared.isInitialized && UnityAdsConfiguration.isConfigured
     }
 
-    var privacyOptionsRequired: Bool {
-        ConsentInformation.shared.privacyOptionsRequirementStatus == .required
-    }
+    var privacyOptionsRequired: Bool { false }
 
     func prepare(completion: @escaping () -> Void) {
         preparationCallbacks.append(completion)
-        guard !isPreparing else { return }
-        isPreparing = true
-
-        let parameters = RequestParameters()
-        ConsentInformation.shared.requestConsentInfoUpdate(with: parameters) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                do {
-                    try await ConsentForm.loadAndPresentIfRequired(from: nil)
-                } catch {
-                    // A previous valid consent status can still allow requests after a form error.
-                }
-                self.finishPreparation()
+        UnityAdsRuntime.shared.prepare { [weak self] initialized in
+            guard let self else { return }
+            if initialized {
+                self.loadRewardedAd()
             }
+            let callbacks = self.preparationCallbacks
+            self.preparationCallbacks.removeAll()
+            callbacks.forEach { $0() }
         }
     }
 
@@ -85,96 +125,138 @@ final class AdMobAdvertisingService: NSObject, AdvertisingServing {
     ) {
         guard canRequestAds, let rewardedAd else {
             completion(false)
-            Task { await loadRewardedAd() }
+            loadRewardedAd()
             return
         }
-
-        do {
-            try rewardedAd.canPresent(from: nil)
-        } catch {
+        guard let viewController = activeViewController() else {
             completion(false)
-            self.rewardedAd = nil
-            Task { await loadRewardedAd() }
             return
         }
 
         pendingRewardCompletion = completion
         rewardWasEarned = false
         self.rewardedAd = nil
-        rewardedAd.present(from: nil) { [weak self] in
-            guard let self else { return }
-            self.rewardWasEarned = true
-            self.pendingRewardCompletion?(true)
-            self.pendingRewardCompletion = nil
-        }
+
+        let configuration = UADSShowConfigurationBuilder()
+            .with(viewController: viewController)
+            .build()
+        rewardedAd.show(configuration, delegate: self)
     }
 
     func presentPrivacyOptions(completion: @escaping (Bool) -> Void) {
-        Task { @MainActor in
-            do {
-                try await ConsentForm.presentPrivacyOptionsForm(from: nil)
-                completion(true)
-            } catch {
-                completion(false)
+        completion(false)
+    }
+
+    func gameDidEnd() {
+        // No forced interstitial. Monetization is limited to the home banner and
+        // rewarded power-ups that the player explicitly requests.
+    }
+
+    private func loadRewardedAd() {
+        guard canRequestAds, rewardedAd == nil, !isLoadingRewarded else { return }
+        isLoadingRewarded = true
+
+        let configuration = UADSLoadConfigurationBuilder(
+            placementId: UnityAdsConfiguration.rewardedPlacementID
+        ).build()
+
+        UADSRewardedAd.load(configuration) { [weak self] ad, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isLoadingRewarded = false
+                self.rewardedAd = ad
+                self.rewardedAd?.onAdExpired = { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.rewardedAd = nil
+                        self?.loadRewardedAd()
+                    }
+                }
             }
         }
     }
 
-    func gameDidEnd() {
-        // Intentionally no forced interstitial. Gogoiy monetizes with an unobtrusive
-        // home banner and explicitly user-initiated rewarded power-ups.
-    }
-
-    private func finishPreparation() {
-        isPreparing = false
-        if canRequestAds {
-            MobileAds.shared.start()
-            Task { await loadRewardedAd() }
-        }
-        let callbacks = preparationCallbacks
-        preparationCallbacks.removeAll()
-        callbacks.forEach { $0() }
-    }
-
-    private func loadRewardedAd() async {
-        guard canRequestAds, rewardedAd == nil else { return }
-        do {
-            let ad = try await RewardedAd.load(
-                with: AdMobConfiguration.rewardedAdUnitID,
-                request: Request()
-            )
-            ad.fullScreenContentDelegate = self
-            rewardedAd = ad
-        } catch {
-            rewardedAd = nil
-        }
-    }
-}
-
-extension AdMobAdvertisingService: FullScreenContentDelegate {
-    func adDidDismissFullScreenContent(_ ad: FullScreenPresentingAd) {
-        if !rewardWasEarned {
-            pendingRewardCompletion?(false)
-            pendingRewardCompletion = nil
-        }
-        Task { await loadRewardedAd() }
-    }
-
-    func ad(
-        _ ad: FullScreenPresentingAd,
-        didFailToPresentFullScreenContentWithError error: Error
-    ) {
-        pendingRewardCompletion?(false)
+    private func finishReward(_ earned: Bool) {
+        pendingRewardCompletion?(earned)
         pendingRewardCompletion = nil
-        Task { await loadRewardedAd() }
     }
 }
 
-struct AdMobBannerView: UIViewRepresentable {
+extension UnityAdsAdvertisingService: @preconcurrency UADSRewardedShowDelegate {
+    func showDidStart(_ unityAd: UADSRewardedAd) {}
+
+    func showDidClick(_ unityAd: UADSRewardedAd) {}
+
+    func showDidReceiveReward(_ unityAd: UADSRewardedAd) {
+        rewardWasEarned = true
+        finishReward(true)
+    }
+
+    func showDidComplete(_ unityAd: UADSRewardedAd, with finishState: UADSShowFinishState) {
+        if !rewardWasEarned {
+            finishReward(false)
+        }
+        loadRewardedAd()
+    }
+
+    func showDidFail(_ unityAd: UADSRewardedAd, error: UnityAdsError) {
+        finishReward(false)
+        loadRewardedAd()
+    }
+}
+
+struct UnityAdsBannerView: UIViewRepresentable {
     let width: CGFloat
 
-    final class Coordinator {
-        var banner: BannerView?
+    @MainActor
+    final class Coordinator: NSObject, @preconcurrency UADSBannerAdDelegate {
+        weak var container: UIView?
+        var bannerAd: UADSBannerAd?
+        var isLoading = false
+
+        func loadBanner() {
+            guard !isLoading, bannerAd == nil else { return }
+            isLoading = true
+
+            let configuration = UADSBannerLoadConfigurationBuilder(
+                placementId: UnityAdsConfiguration.bannerPlacementID,
+                bannerSize: CGSize(width: 320, height: 50),
+                delegate: self
+            ).build()
+
+            UADSBannerAd.load(configuration) { [weak self] ad, _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.isLoading = false
+                    guard let ad, let container = self.container else { return }
+
+                    self.bannerAd = ad
+                    ad.view.translatesAutoresizingMaskIntoConstraints = false
+                    container.addSubview(ad.view)
+                    NSLayoutConstraint.activate([
+                        ad.view.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                        ad.view.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                        ad.view.widthAnchor.constraint(equalToConstant: 320),
+                        ad.view.heightAnchor.constraint(equalToConstant: 50)
+                    ])
+                    ad.onAdExpired = { [weak self] _ in
+                        Task { @MainActor [weak self] in
+                            self?.bannerAd?.view.removeFromSuperview()
+                            self?.bannerAd = nil
+                            self?.loadBanner()
+                        }
+                    }
+                }
+            }
+        }
+
+        func bannerImpression(_ banner: UADSBannerAd) {}
+
+        func bannerDidClick(_ banner: UADSBannerAd) {}
+
+        func bannerDidFailShow(_ banner: UADSBannerAd, error: UnityAdsError) {
+            bannerAd?.view.removeFromSuperview()
+            bannerAd = nil
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -185,41 +267,36 @@ struct AdMobBannerView: UIViewRepresentable {
         let container = UIView()
         container.backgroundColor = .clear
         container.clipsToBounds = true
+        context.coordinator.container = container
 
-        let adSize = inlineAdaptiveBanner(width: width, maxHeight: 50)
-        let banner = BannerView(adSize: adSize)
-        banner.adUnitID = AdMobConfiguration.bannerAdUnitID
-        banner.rootViewController = topViewController()
-        banner.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(banner)
-        NSLayoutConstraint.activate([
-            banner.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            banner.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            banner.widthAnchor.constraint(equalToConstant: width),
-            banner.heightAnchor.constraint(equalToConstant: 50)
-        ])
-        context.coordinator.banner = banner
-        banner.load(Request())
+        guard UnityAdsConfiguration.isConfigured else { return container }
+        UnityAdsRuntime.shared.prepare { initialized in
+            if initialized {
+                context.coordinator.loadBanner()
+            }
+        }
         return container
     }
 
-    func updateUIView(_ container: UIView, context: Context) {
-        guard let banner = context.coordinator.banner else { return }
-        if banner.rootViewController == nil {
-            banner.rootViewController = topViewController()
-        }
-    }
+    func updateUIView(_ uiView: UIView, context: Context) {}
 
-    private func topViewController() -> UIViewController? {
-        let windowScene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }
-        var controller = windowScene?.keyWindow?.rootViewController
-        while let presented = controller?.presentedViewController {
-            controller = presented
-        }
-        return controller
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.bannerAd?.view.removeFromSuperview()
+        coordinator.bannerAd = nil
+        coordinator.container = nil
     }
+}
+
+@MainActor
+private func activeViewController() -> UIViewController? {
+    let windowScene = UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+        .first { $0.activationState == .foregroundActive }
+    var controller = windowScene?.keyWindow?.rootViewController
+    while let presented = controller?.presentedViewController {
+        controller = presented
+    }
+    return controller
 }
 
 @MainActor
