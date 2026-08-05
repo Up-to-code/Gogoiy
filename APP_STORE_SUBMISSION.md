@@ -59,9 +59,13 @@ App Store Connect; do not claim that the app collects no data.
     advertising disclosures.
 11. Upload the build, select it for the version, and submit for review.
 
-## Current readiness (July 29, 2026)
+## Current readiness (August 5, 2026)
 
-- Privacy/support site: deployed and verified over HTTPS.
+- Privacy/support site: deployed and verified over HTTPS (all pages return 200).
+- In-app Privacy Policy, Terms of Use, Ad Privacy Choices, and Website links point
+  to the live site (https://gogoiy.qentrah.com).
+- Unity Ads: SDK initializes and loads the banner and rewarded placements in Debug
+  (test mode) and Release (live) builds.
 - Release simulator build: succeeds.
 - Automated tests: 15 passed, 0 failed.
 - App icon: 1024 × 1024 asset present.

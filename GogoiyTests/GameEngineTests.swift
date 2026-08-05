@@ -155,7 +155,7 @@ final class GameEngineTests: XCTestCase {
         XCTAssertTrue(engine.state.isGameOver)
     }
 
-    func testSeededGeneratorIsDeterministicAndInitialTrayIsPlayable() {
+    func testSeededGeneratorIsDeterministicAndTrayDrawsFromCatalog() {
         let first = GameEngine(seed: 42)
         let second = GameEngine(seed: 42)
 
@@ -163,47 +163,63 @@ final class GameEngineTests: XCTestCase {
             first.state.tray.availablePieces.map(\.shape.name),
             second.state.tray.availablePieces.map(\.shape.name)
         )
-        XCTAssertTrue(first.state.tray.availablePieces.contains {
-            first.state.board.hasPlacement(for: $0)
-        })
-        XCTAssertTrue(
-            hasCompleteSequence(
-                board: first.state.board,
-                pieces: first.state.tray.availablePieces
-            )
+        XCTAssertEqual(
+            first.state.tray.availablePieces.map(\.color),
+            second.state.tray.availablePieces.map(\.color)
+        )
+
+        let validShapes = Set(PieceCatalog.shapes.map(\.name))
+        XCTAssertEqual(first.state.tray.availablePieces.count, 3)
+        for piece in first.state.tray.availablePieces {
+            XCTAssertTrue(validShapes.contains(piece.shape.name))
+            XCTAssertTrue(BlockColor.allCases.contains(piece.color))
+        }
+    }
+
+    func testTrayColorsAndShapesVaryAcrossSeedsInsteadOfBeingForced() {
+        var colorCounts = [BlockColor: Int]()
+        var shapeNames = Set<String>()
+        for seed in 0..<60 {
+            let engine = GameEngine(seed: UInt64(seed))
+            for piece in engine.state.tray.availablePieces {
+                colorCounts[piece.color, default: 0] += 1
+                shapeNames.insert(piece.shape.name)
+            }
+        }
+        XCTAssertGreaterThanOrEqual(
+            colorCounts.count,
+            2,
+            "Tray colors should be randomized across the palette, not forced to one color"
+        )
+        XCTAssertGreaterThanOrEqual(
+            shapeNames.count,
+            3,
+            "Tray shapes should be randomized across the catalog"
         )
     }
 
-    func testGeneratedTrayOffersACompleteBoardAwareRoute() throws {
-        var board = Board()
-        for column in 0..<7 {
-            board[GridCell(row: 0, column: column)] = .cyan
-        }
-        let finalOldPiece = piece("single", color: .amber)
+    func testTrayRefillDrawsThreeFreshRandomPieces() throws {
+        let pieces = [
+            piece("single", color: .cyan),
+            piece("single", color: .amber),
+            piece("single", color: .coral)
+        ]
         var engine = GameEngine(
-            state: makeState(
-                board: board,
-                tray: Tray(slots: [finalOldPiece, nil, nil])
-            ),
-            seed: 45
+            state: makeState(board: Board(), tray: Tray(slots: pieces.map(Optional.some))),
+            seed: 5
         )
 
-        _ = try engine.place(pieceID: finalOldPiece.id, at: GridCell(row: 7, column: 7))
+        _ = try engine.place(pieceID: pieces[0].id, at: GridCell(row: 0, column: 0))
+        _ = try engine.place(pieceID: pieces[1].id, at: GridCell(row: 0, column: 1))
+        _ = try engine.place(pieceID: pieces[2].id, at: GridCell(row: 0, column: 2))
 
-        XCTAssertTrue(
-            hasCompleteSequence(
-                board: engine.state.board,
-                pieces: engine.state.tray.availablePieces
-            )
-        )
-        XCTAssertTrue(engine.state.tray.availablePieces.contains { candidate in
-            guard candidate.color == .cyan else { return false }
-            return placements(of: candidate, on: engine.state.board).contains { origin in
-                var preview = engine.state.board
-                _ = preview.place(candidate, at: origin)
-                return !preview.completedLines().cells.isEmpty
-            }
-        })
+        let refilled = engine.state.tray.availablePieces
+        XCTAssertEqual(refilled.count, 3)
+        let validShapes = Set(PieceCatalog.shapes.map(\.name))
+        for piece in refilled {
+            XCTAssertTrue(validShapes.contains(piece.shape.name))
+            XCTAssertTrue(BlockColor.allCases.contains(piece.color))
+        }
     }
 
     func testDifficultyLevelScalesAndCapsAtOneHundred() {
@@ -319,26 +335,4 @@ final class GameEngineTests: XCTestCase {
         )
     }
 
-    private func hasCompleteSequence(board: Board, pieces: [Piece]) -> Bool {
-        guard let piece = pieces.first else { return true }
-        let remaining = Array(pieces.dropFirst())
-        for origin in placements(of: piece, on: board) {
-            var nextBoard = board
-            _ = nextBoard.place(piece, at: origin)
-            nextBoard.clear(nextBoard.completedLines().cells)
-            if hasCompleteSequence(board: nextBoard, pieces: remaining) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func placements(of piece: Piece, on board: Board) -> [GridCell] {
-        (0..<Board.sideLength).flatMap { row in
-            (0..<Board.sideLength).compactMap { column in
-                let origin = GridCell(row: row, column: column)
-                return board.canPlace(piece, at: origin) ? origin : nil
-            }
-        }
-    }
 }

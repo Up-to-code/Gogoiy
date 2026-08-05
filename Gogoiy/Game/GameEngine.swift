@@ -167,152 +167,17 @@ struct GameEngine: Sendable {
     }
 
     private mutating func makePlayableTray(for board: Board) -> Tray {
-        // Build against a simulated board so every tray has a known route where
-        // all three pieces can be placed. Retrying introduces variety without
-        // giving up the solvability guarantee.
-        for _ in 0..<8 {
-            if let pieces = makePlannedTray(for: board) {
-                return Tray(slots: pieces.map(Optional.some))
-            }
-        }
-
-        // A malformed or completely blocked board can make a three-move route
-        // impossible. Singles preserve every remaining legal opportunity.
-        let pieces = (0..<3).map { _ in
-            Piece(shape: PieceCatalog.single, color: bestRescueColor(for: board))
-        }
+        // Draw three blocks independently: each slot pairs a random shape with a
+        // random color. There is no board simulation and no rescue coloring, so
+        // the tray is genuinely random every refill and the board does not get
+        // an automatic win handed to it.
+        let pieces = (0..<3).map { _ in randomPiece() }
         return Tray(slots: pieces.map(Optional.some))
     }
 
-    private struct PlannedMove {
-        let piece: Piece
-        let resultingBoard: Board
-        let quality: Int
-    }
-
-    private mutating func makePlannedTray(for startingBoard: Board) -> [Piece]? {
-        var planningBoard = startingBoard
-        var pieces: [Piece] = []
-
-        for _ in 0..<3 {
-            let candidates = plannedMoves(for: planningBoard, excluding: pieces.map(\.shape.name))
-            guard !candidates.isEmpty else { return nil }
-
-            let window = min(candidates.count, 3 + state.level / 5)
-            let selectedIndex = weightedRank(in: window)
-            let selected = candidates[selectedIndex]
-            pieces.append(selected.piece)
-            planningBoard = selected.resultingBoard
-        }
-
-        return pieces
-    }
-
-    private func plannedMoves(for board: Board, excluding recentShapes: [String]) -> [PlannedMove] {
-        let maximumCells: Int
-        switch state.level {
-        case 1...15: maximumCells = 4
-        case 16...35: maximumCells = 5
-        default: maximumCells = 9
-        }
-
-        var moves: [PlannedMove] = []
-        for shape in PieceCatalog.shapes where shape.cells.count <= maximumCells {
-            for color in BlockColor.allCases {
-                let piece = Piece(shape: shape, color: color)
-                for row in 0..<Board.sideLength {
-                    for column in 0..<Board.sideLength {
-                        let origin = GridCell(row: row, column: column)
-                        guard board.canPlace(piece, at: origin) else { continue }
-
-                        var result = board
-                        _ = result.place(piece, at: origin)
-                        let completed = result.completedLines()
-                        result.clear(completed.cells)
-
-                        let lineCount = completed.rows.count + completed.columns.count
-                        let varietyPenalty = recentShapes.contains(shape.name) ? 18 : 0
-                        let challengeBonus = shape.cells.count * state.level / 5
-                        let quality = lineCount * 600
-                            + completed.cells.count * 35
-                            + boardQuality(result)
-                            + shape.weight
-                            + challengeBonus
-                            - varietyPenalty
-                        moves.append(
-                            PlannedMove(piece: piece, resultingBoard: result, quality: quality)
-                        )
-                    }
-                }
-            }
-        }
-
-        return moves.sorted { lhs, rhs in
-            if lhs.quality != rhs.quality { return lhs.quality > rhs.quality }
-            if lhs.piece.shape.cells.count != rhs.piece.shape.cells.count {
-                return lhs.piece.shape.cells.count < rhs.piece.shape.cells.count
-            }
-            if lhs.piece.shape.name != rhs.piece.shape.name {
-                return lhs.piece.shape.name < rhs.piece.shape.name
-            }
-            return lhs.piece.color.rawValue < rhs.piece.color.rawValue
-        }
-    }
-
-    private func boardQuality(_ board: Board) -> Int {
-        var quality = board.cells.reduce(0) { $0 + ($1 == nil ? 2 : 0) }
-
-        for index in 0..<Board.sideLength {
-            let rowColors = (0..<Board.sideLength).compactMap {
-                board[GridCell(row: index, column: $0)]
-            }
-            let columnColors = (0..<Board.sideLength).compactMap {
-                board[GridCell(row: $0, column: index)]
-            }
-            quality += lineQuality(rowColors)
-            quality += lineQuality(columnColors)
-        }
-
-        return quality
-    }
-
-    private func lineQuality(_ colors: [BlockColor]) -> Int {
-        guard !colors.isEmpty else { return 0 }
-        let distinctColors = Set(colors).count
-        if distinctColors == 1 {
-            return colors.count * colors.count * 4
-        }
-        return -(colors.count * distinctColors * 5)
-    }
-
-    private mutating func weightedRank(in count: Int) -> Int {
-        guard count > 1 else { return 0 }
-        let totalWeight = count * (count + 1) / 2
-        var selection = Int.random(in: 0..<totalWeight, using: &random)
-        for index in 0..<count {
-            selection -= count - index
-            if selection < 0 { return index }
-        }
-        return 0
-    }
-
-    private func bestRescueColor(for board: Board) -> BlockColor {
-        BlockColor.allCases.max { lhs, rhs in
-            rescueColorScore(lhs, on: board) < rescueColorScore(rhs, on: board)
-        } ?? .cyan
-    }
-
-    private func rescueColorScore(_ color: BlockColor, on board: Board) -> Int {
-        var score = 0
-        for index in 0..<Board.sideLength {
-            let rowMatches = (0..<Board.sideLength).filter {
-                board[GridCell(row: index, column: $0)] == color
-            }.count
-            let columnMatches = (0..<Board.sideLength).filter {
-                board[GridCell(row: $0, column: index)] == color
-            }.count
-            score += rowMatches * rowMatches + columnMatches * columnMatches
-        }
-        return score
+    private mutating func randomPiece() -> Piece {
+        let shape = PieceCatalog.shapes.randomElement(using: &random)!
+        let color = BlockColor.allCases.randomElement(using: &random)!
+        return Piece(shape: shape, color: color)
     }
 }

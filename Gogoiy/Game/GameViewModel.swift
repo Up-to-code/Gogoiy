@@ -177,14 +177,16 @@ final class GameViewModel: ObservableObject {
     }
 
     func showPrivacyOptions() {
-        advertising.presentPrivacyOptions { [weak self] succeeded in
-            guard let self else { return }
-            self.canRequestAds = self.advertising.canRequestAds
-            self.privacyOptionsRequired = self.advertising.privacyOptionsRequired
-            if !succeeded {
-                self.hintText = "Privacy choices are not available right now"
-            }
-        }
+        openWebsite("https://gogoiy.qentrah.com/privacy-choices")
+    }
+
+    func showWebsite() {
+        openWebsite("https://gogoiy.qentrah.com/")
+    }
+
+    private func openWebsite(_ urlString: String) {
+        guard let url = URL(string: urlString) else { return }
+        UIApplication.shared.open(url)
     }
 
     func closeOverlay() {

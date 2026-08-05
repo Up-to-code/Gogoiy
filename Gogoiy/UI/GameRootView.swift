@@ -10,6 +10,9 @@ ads. The integration uses restrictive, non-tracking privacy settings. Unity and 
 advertising partners may still process device, network, and ad-delivery data as described \
 in the privacy information on the final App Store listing.
 
+The full privacy policy and privacy choices are available on the Gogoiy website at \
+https://gogoiy.qentrah.com/privacy.
+
 Deleting Gogoiy removes its locally stored game preferences. This prototype does not \
 sell personal information or include analytics, accounts, or a custom tracking backend.
 """
@@ -454,33 +457,7 @@ private struct HomeScreen: View {
 }
 
 private struct AdBannerSlot: View {
-    @ViewBuilder
     var body: some View {
-#if DEBUG
-        HStack(spacing: 10) {
-            Image(systemName: "rectangle.inset.filled")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.cyan)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("ADVERTISEMENT")
-                    .font(.system(size: 10, weight: .black, design: .rounded))
-                    .tracking(1.3)
-                Text("Ad preview · Live in release")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.55))
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .frame(maxWidth: 420, minHeight: 50, maxHeight: 50)
-        .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 13))
-        .overlay(
-            RoundedRectangle(cornerRadius: 13)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
-        )
-        .frame(maxWidth: .infinity)
-        .accessibilityLabel("Advertisement preview")
-#else
         GeometryReader { geometry in
             let width = min(420, max(320, geometry.size.width))
 
@@ -491,7 +468,6 @@ private struct AdBannerSlot: View {
                 .accessibilityLabel("Advertisement")
         }
         .frame(height: 50)
-#endif
     }
 }
 
@@ -697,6 +673,11 @@ private struct MoreSettingsPanel: View {
                     title: "Terms of Use",
                     systemImage: "doc.text.fill",
                     action: { model.showTermsOfUse() }
+                )
+                MoreSettingsButton(
+                    title: "Website",
+                    systemImage: "safari.fill",
+                    action: { model.showWebsite() }
                 )
             }
 
