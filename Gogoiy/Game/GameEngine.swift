@@ -90,6 +90,36 @@ struct GameEngine: Sendable {
         return !state.isGameOver && state.board.hasPlacement(for: sample)
     }
 
+    func bestRewardedBlock() -> (shape: PieceShape, color: BlockColor)? {
+        var best: (shape: PieceShape, color: BlockColor, clearedCells: Int, placements: Int)?
+        for shape in PieceCatalog.rewardedShapes {
+            for color in BlockColor.allCases {
+                let piece = Piece(shape: shape, color: color)
+                guard state.board.hasPlacement(for: piece) else { continue }
+
+                var maxCleared = 0
+                var placementCount = 0
+                for row in 0..<Board.sideLength {
+                    for column in 0..<Board.sideLength {
+                        let origin = GridCell(row: row, column: column)
+                        guard state.board.canPlace(piece, at: origin) else { continue }
+                        placementCount += 1
+                        var preview = state.board
+                        _ = preview.place(piece, at: origin)
+                        maxCleared = max(maxCleared, preview.completedLines().cells.count)
+                    }
+                }
+
+                if best == nil
+                    || maxCleared > best!.clearedCells
+                    || (maxCleared == best!.clearedCells && placementCount > best!.placements) {
+                    best = (shape, color, maxCleared, placementCount)
+                }
+            }
+        }
+        return best.map { (shape: $0.shape, color: $0.color) }
+    }
+
     @discardableResult
     mutating func replaceFirstAvailablePiece(
         with shape: PieceShape,

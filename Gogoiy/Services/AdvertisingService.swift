@@ -123,6 +123,9 @@ final class UnityAdsAdvertisingService: NSObject, AdvertisingServing {
         for powerUp: RewardedPowerUp,
         completion: @escaping (Bool) -> Void
     ) {
+#if targetEnvironment(simulator)
+        presentSimulatedRewarded(completion: completion)
+#else
         guard canRequestAds, let rewardedAd else {
             completion(false)
             loadRewardedAd()
@@ -141,7 +144,23 @@ final class UnityAdsAdvertisingService: NSObject, AdvertisingServing {
             .with(viewController: viewController)
             .build()
         rewardedAd.show(configuration, delegate: self)
+#endif
     }
+
+#if targetEnvironment(simulator)
+    private func presentSimulatedRewarded(completion: @escaping (Bool) -> Void) {
+        guard let viewController = activeViewController() else {
+            completion(false)
+            return
+        }
+        let controller = SimulatedRewardedAdController { [weak self] earned in
+            self?.loadRewardedAd()
+            completion(earned)
+        }
+        controller.modalPresentationStyle = .fullScreen
+        viewController.present(controller, animated: true)
+    }
+#endif
 
     func presentPrivacyOptions(completion: @escaping (Bool) -> Void) {
         completion(false)
@@ -321,3 +340,123 @@ final class NoOpAdvertisingService: AdvertisingServing {
 
     func gameDidEnd() {}
 }
+
+#if targetEnvironment(simulator)
+@MainActor
+final class SimulatedRewardedAdController: UIViewController {
+    private let completion: (Bool) -> Void
+    private var countdown = 5
+    private var timer: Timer?
+    private let progressView = UIProgressView(progressViewStyle: .default)
+    private let countdownLabel = UILabel()
+
+    init(completion: @escaping (Bool) -> Void) {
+        self.completion = completion
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(container)
+
+        let icon = UIImageView(image: UIImage(systemName: "play.rectangle.fill"))
+        icon.tintColor = .systemCyan
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        let title = UILabel()
+        title.text = "Ad"
+        title.font = UIFont.systemFont(ofSize: 30, weight: .bold)
+        title.textColor = .white
+        title.textAlignment = .center
+
+        let subtitle = UILabel()
+        subtitle.text = "Simulated reward ad (simulator only)"
+        subtitle.font = .systemFont(ofSize: 14, weight: .medium)
+        subtitle.textColor = .white.withAlphaComponent(0.6)
+        subtitle.textAlignment = .center
+
+        progressView.trackTintColor = .white.withAlphaComponent(0.2)
+        progressView.progressTintColor = .systemCyan
+        progressView.translatesAutoresizingMaskIntoConstraints = false
+
+        countdownLabel.text = "Reward in \(countdown)s"
+        countdownLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        countdownLabel.textColor = .white
+        countdownLabel.textAlignment = .center
+
+        container.addSubview(icon)
+        container.addSubview(title)
+        container.addSubview(subtitle)
+        container.addSubview(progressView)
+        container.addSubview(countdownLabel)
+        for subview in [icon, title, subtitle, progressView, countdownLabel] {
+            subview.translatesAutoresizingMaskIntoConstraints = false
+        }
+
+        NSLayoutConstraint.activate([
+            container.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            container.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            container.widthAnchor.constraint(equalToConstant: 280),
+
+            icon.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            icon.topAnchor.constraint(equalTo: container.topAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 64),
+            icon.heightAnchor.constraint(equalToConstant: 64),
+
+            title.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            title.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 16),
+
+            subtitle.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 6),
+
+            progressView.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 28),
+            progressView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            progressView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+
+            countdownLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            countdownLabel.topAnchor.constraint(equalTo: progressView.bottomAnchor, constant: 12),
+            countdownLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        startCountdown()
+    }
+
+    private func startCountdown() {
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.tick()
+            }
+        }
+        tick()
+    }
+
+    private func tick() {
+        countdown = max(0, countdown - 1)
+        countdownLabel.text = countdown > 0
+            ? "Reward in \(countdown)s"
+            : "Reward ready"
+        progressView.progress = 1 - Float(countdown) / 5
+        if countdown <= 0 {
+            timer?.invalidate()
+            timer = nil
+            finish()
+        }
+    }
+
+    private func finish() {
+        completion(true)
+        dismiss(animated: true)
+    }
+}
+#endif

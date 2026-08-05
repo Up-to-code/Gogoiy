@@ -754,19 +754,28 @@ private struct LegalPanel: View {
 
 private struct BlockBuilderPanel: View {
     @ObservedObject var model: GameViewModel
-    @State private var selectedShape = PieceCatalog.rewardedShapes[0]
-    @State private var selectedColor = BlockColor.cyan
+    @State private var selectedShape: PieceShape
+    @State private var selectedColor: BlockColor
+
+    init(model: GameViewModel) {
+        self.model = model
+        if let recommended = model.recommendedBlock() {
+            _selectedShape = State(initialValue: recommended.shape)
+            _selectedColor = State(initialValue: recommended.color)
+        } else {
+            _selectedShape = State(initialValue: PieceCatalog.rewardedShapes[0])
+            _selectedColor = State(initialValue: BlockColor.cyan)
+        }
+    }
+
+    private var recommendedShape: PieceShape? {
+        model.recommendedBlock()?.shape
+    }
 
     var body: some View {
-        VStack(spacing: 12) {
-            VStack(spacing: 4) {
-                Text("GET YOUR BLOCK")
-                    .font(.system(size: 12, weight: .black, design: .rounded))
-                    .tracking(1.9)
-                    .foregroundStyle(.cyan)
-                Text("Choose your block")
-                    .font(.system(size: 22, weight: .black, design: .rounded))
-            }
+        VStack(spacing: 14) {
+            Text("Choose a Block")
+                .font(.system(size: 22, weight: .black, design: .rounded))
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 7) {
                 ForEach(PieceCatalog.rewardedShapes, id: \.name) { shape in
@@ -789,6 +798,18 @@ private struct BlockBuilderPanel: View {
                                         lineWidth: 1.5
                                     )
                             )
+                            .overlay(alignment: .topTrailing) {
+                                if recommendedShape == shape {
+                                    Text("BEST")
+                                        .font(.system(size: 7, weight: .black, design: .rounded))
+                                        .tracking(0.5)
+                                        .foregroundStyle(.black)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 2)
+                                        .background(Color.green, in: Capsule())
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
                     }
                     .disabled(!model.canUseRewardedShape(shape))
                     .opacity(model.canUseRewardedShape(shape) ? 1 : 0.3)
@@ -813,18 +834,16 @@ private struct BlockBuilderPanel: View {
                 }
             }
 
-            Text("Replaces your first remaining tray piece.")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+            Text("Replaces your first tray piece")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.55))
                 .multilineTextAlignment(.center)
 
             Button {
                 model.watchRewardedBlock(shape: selectedShape, color: selectedColor)
             } label: {
-                Label("Watch Ad · Get Block", systemImage: "play.rectangle.fill")
+                Label("Watch Ad", systemImage: "play.rectangle.fill")
                     .frame(maxWidth: .infinity)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
             }
             .buttonStyle(CandyButtonStyle(color: Color(red: 0.48, green: 0.31, blue: 0.95)))
 
@@ -834,7 +853,7 @@ private struct BlockBuilderPanel: View {
             .font(.system(size: 14, weight: .bold, design: .rounded))
             .foregroundStyle(.white.opacity(0.65))
         }
-        .padding(20)
+        .padding(22)
         .frame(maxWidth: 350)
         .panelBackground()
         .padding(20)

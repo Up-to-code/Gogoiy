@@ -296,6 +296,50 @@ final class GameEngineTests: XCTestCase {
         XCTAssertEqual(engine.state.tray.availablePieces.count, 3)
     }
 
+    func testBestRewardedBlockPrefersShapeThatClearsMostLines() throws {
+        var board = Board()
+        for column in 0..<Board.sideLength {
+            board[GridCell(row: 4, column: column)] = .amber
+        }
+        for row in 0..<Board.sideLength {
+            board[GridCell(row: row, column: 4)] = .cyan
+        }
+        board[GridCell(row: 4, column: 4)] = nil
+        let engine = GameEngine(
+            state: makeState(
+                board: board,
+                tray: Tray(slots: [nil, nil, nil])
+            ),
+            seed: 9
+        )
+
+        let recommended = try XCTUnwrap(engine.bestRewardedBlock())
+        let sample = Piece(shape: recommended.shape, color: recommended.color)
+
+        XCTAssertTrue(engine.state.board.hasPlacement(for: sample))
+        var preview = engine.state.board
+        _ = preview.place(sample, at: GridCell(row: 4, column: 4))
+        XCTAssertEqual(preview.completedLines().cells.count, 8)
+    }
+
+    func testBestRewardedBlockIsNilWhenNoRewardedShapeFits() {
+        var board = Board()
+        for row in 0..<Board.sideLength {
+            for column in 0..<Board.sideLength {
+                board[GridCell(row: row, column: column)] = .coral
+            }
+        }
+        let engine = GameEngine(
+            state: makeState(
+                board: board,
+                tray: Tray(slots: [nil, nil, nil])
+            ),
+            seed: 10
+        )
+
+        XCTAssertNil(engine.bestRewardedBlock())
+    }
+
     func testPreferencesPersistScoreAndFeedbackSettings() throws {
         let suiteName = "GogoiyTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

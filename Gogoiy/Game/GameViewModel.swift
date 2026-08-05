@@ -113,7 +113,7 @@ final class GameViewModel: ObservableObject {
     func watchRewardedHint() {
         guard screen == .game, overlay == .none, !state.isGameOver else { return }
         scene.setGamePaused(true)
-        hintText = "Preparing your hint…"
+        hintText = "Loading…"
         advertising.presentRewarded(for: .hint) { [weak self] rewardEarned in
             guard let self else { return }
             if rewardEarned, let hint = self.engine.bestPlacementHint() {
@@ -122,7 +122,7 @@ final class GameViewModel: ObservableObject {
                     : "This move can complete a same-color line"
                 self.scene.showHint(hint)
             } else {
-                self.hintText = "The rewarded ad is still loading—try again shortly"
+                self.hintText = "Ad is loading — try again"
             }
             if self.screen == .game, self.overlay == .none {
                 self.scene.setGamePaused(false)
@@ -140,20 +140,24 @@ final class GameViewModel: ObservableObject {
         engine.canUseRewardedShape(shape)
     }
 
+    func recommendedBlock() -> (shape: PieceShape, color: BlockColor)? {
+        engine.bestRewardedBlock()
+    }
+
     func watchRewardedBlock(shape: PieceShape, color: BlockColor) {
         guard overlay == .blockBuilder else { return }
-        hintText = "Preparing your custom block…"
+        hintText = "Loading…"
         advertising.presentRewarded(for: .getBlock) { [weak self] rewardEarned in
             guard let self else { return }
             if rewardEarned,
                let piece = self.engine.replaceFirstAvailablePiece(with: shape, color: color) {
                 self.state = self.engine.state
-                self.hintText = "Your \(piece.shape.name) block is ready"
+                self.hintText = "\(piece.shape.name) added"
                 self.overlay = .none
                 self.scene.renderCurrentState(animatedTray: true)
                 self.scene.setGamePaused(false)
             } else {
-                self.hintText = "The rewarded ad is still loading—try again shortly"
+                self.hintText = "Ad is loading — try again"
                 self.overlay = .none
                 self.scene.setGamePaused(false)
             }
