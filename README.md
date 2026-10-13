@@ -36,3 +36,7 @@ xcodebuild test \
   -scheme Gogoiy \
   -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5'
 ```
+
+## Project links
+
+[Source](https://github.com/Up-to-code/Gogoiy) · [Issues](https://github.com/Up-to-code/Gogoiy/issues) · [Public project directory](https://github.com/qentrah/.github/blob/main/profile/PROJECTS.md)
